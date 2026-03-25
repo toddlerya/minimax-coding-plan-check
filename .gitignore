@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Data
+data/*.sqlite
+data/*.sqlite-journal
+
+# Config (contains API key)
+*.json
+!package.json
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+*.swp
+*.swo
+*.bak
+
+# IDE
+.idea/
+.vscode/
+*.sublime-*
+
+# Claude Code settings (local only)
+.claude/settings.local.json
+
+# Environment
+.env
+.env.local
