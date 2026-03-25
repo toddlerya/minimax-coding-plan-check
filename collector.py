@@ -15,8 +15,37 @@ from datetime import datetime
 import db
 
 CONFIG_FILE = os.path.expanduser("~/.minimax-quota.json")
+PID_FILE = os.path.expanduser("~/.minimax-quota/collector.pid")
 API_URL = "https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains"
 DEFAULT_INTERVAL = 300  # 5 minutes
+
+
+def acquire_lock():
+    """Acquire single-instance lock using PID file. Returns True if acquired."""
+    os.makedirs(os.path.dirname(PID_FILE), exist_ok=True)
+    if os.path.exists(PID_FILE):
+        try:
+            with open(PID_FILE) as f:
+                old_pid = int(f.read().strip())
+            # Check if process is still running
+            os.kill(old_pid, 0)
+            print(f"[{datetime.now()}] Another collector is already running (PID {old_pid})")
+            return False
+        except (ValueError, ProcessLookupError, PermissionError):
+            # Stale PID file or process died, we'll take over
+            pass
+    with open(PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+    return True
+
+
+def release_lock():
+    """Remove PID file on shutdown."""
+    if os.path.exists(PID_FILE):
+        try:
+            os.remove(PID_FILE)
+        except OSError:
+            pass
 
 
 def load_api_key():
@@ -87,10 +116,15 @@ def collect_once(api_key: str) -> bool:
 
 def run_collector(interval: int = DEFAULT_INTERVAL):
     """Run the collector continuously."""
+    # Acquire single-instance lock
+    if not acquire_lock():
+        sys.exit(1)
+
     api_key = load_api_key()
     if not api_key:
         print(f"Error: API key not found in {CONFIG_FILE}")
         print("Please run minimax-quota.sh first to configure your API key.")
+        release_lock()
         sys.exit(1)
 
     # Initialize database
@@ -122,6 +156,7 @@ def run_collector(interval: int = DEFAULT_INTERVAL):
         if not shutdown_requested:
             collect_once(api_key)
 
+    release_lock()
     print(f"[{datetime.now()}] Collector stopped")
 
 
