@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MiniMax Coding Plan 使用量统计</title>
+
+    <!-- Favicon SVG -->
+    <link rel="icon" type="image/svg+xml" id="favicon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23111827'/><circle cx='16' cy='16' r='11' fill='none' stroke='%2306b6d4' stroke-width='3' stroke-dasharray='52 69' stroke-linecap='round' transform='rotate(-90 16 16)'/><text x='16' y='21' font-family='system-ui,sans-serif' font-size='12' font-weight='700' fill='white' text-anchor='middle'>M</text></svg>">
+
+    <!-- Mobile Web App -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" id="mobile-icon" href="/api/icon">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        @media (max-width: 640px) {
+            .card-grid { grid-template-columns: 1fr !important; }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+    <div class="max-w-6xl mx-auto px-4 py-6">
+        <!-- Header -->
+        <header class="mb-8">
+            <h1 class="text-2xl md:text-3xl font-bold text-center">
+                <span class="text-cyan-400">MiniMax</span> Coding Plan 使用量统计
+            </h1>
+            <p id="update-time" class="text-gray-500 text-center mt-2 text-sm"></p>
+        </header>
+
+        <!-- Current Status Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
+            <div class="bg-gray-800 rounded-xl p-4 shadow-lg">
+                <p class="text-gray-400 text-xs md:text-sm">已用量</p>
+                <p id="stat-used" class="text-xl md:text-2xl font-bold text-white mt-1">--</p>
+            </div>
+            <div class="bg-gray-800 rounded-xl p-4 shadow-lg">
+                <p class="text-gray-400 text-xs md:text-sm">总额度</p>
+                <p id="stat-total" class="text-xl md:text-2xl font-bold text-white mt-1">--</p>
+            </div>
+            <div class="bg-gray-800 rounded-xl p-4 shadow-lg">
+                <p class="text-gray-400 text-xs md:text-sm">使用率</p>
+                <p id="stat-pct" class="text-xl md:text-2xl font-bold mt-1">--</p>
+            </div>
+            <div class="bg-gray-800 rounded-xl p-4 shadow-lg">
+                <p class="text-gray-400 text-xs md:text-sm">重置倒计时</p>
+                <p id="stat-remains" class="text-xl md:text-2xl font-bold text-cyan-400 mt-1">--</p>
+            </div>
+        </div>
+
+        <!-- Time Range Selector -->
+        <div class="flex justify-center gap-2 mb-6">
+            <button onclick="setTimeRange(6)" id="btn-6h" class="px-3 py-1.5 rounded-lg text-sm bg-gray-700 hover:bg-gray-600 transition">6小时</button>
+            <button onclick="setTimeRange(24)" id="btn-24h" class="px-3 py-1.5 rounded-lg text-sm bg-cyan-600 text-white transition">24小时</button>
+            <button onclick="setTimeRange(168)" id="btn-7d" class="px-3 py-1.5 rounded-lg text-sm bg-gray-700 hover:bg-gray-600 transition">7天</button>
+        </div>
+
+        <!-- Main Chart -->
+        <div class="bg-gray-800 rounded-xl p-4 md:p-6 shadow-lg mb-6">
+            <h2 class="text-lg font-semibold mb-4">用量走势</h2>
+            <div class="relative h-64 md:h-80">
+                <canvas id="usageChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Statistics Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
+            <div class="bg-gray-800 rounded-xl p-4 shadow-lg">
+                <p class="text-gray-400 text-xs md:text-sm">平均使用率</p>
+                <p id="stat-avg" class="text-xl md:text-2xl font-bold text-green-400 mt-1">--</p>
+            </div>
+            <div class="bg-gray-800 rounded-xl p-4 shadow-lg">
+                <p class="text-gray-400 text-xs md:text-sm">最高使用率</p>
+                <p id="stat-max" class="text-xl md:text-2xl font-bold text-red-400 mt-1">--</p>
+            </div>
+            <div class="bg-gray-800 rounded-xl p-4 shadow-lg">
+                <p class="text-gray-400 text-xs md:text-sm">最低使用率</p>
+                <p id="stat-min" class="text-xl md:text-2xl font-bold text-blue-400 mt-1">--</p>
+            </div>
+            <div class="bg-gray-800 rounded-xl p-4 shadow-lg">
+                <p class="text-gray-400 text-xs md:text-sm">记录总数</p>
+                <p id="stat-count" class="text-xl md:text-2xl font-bold text-purple-400 mt-1">--</p>
+            </div>
+        </div>
+
+        <!-- Status -->
+        <div id="status" class="text-center text-sm mt-4"></div>
+
+    <!-- Footer -->
+        <footer class="text-center text-gray-500 text-xs mt-4">
+            <p>数据每5分钟自动采集一次</p>
+        </footer>
+    </div>
+
+    <script>
+        let chart = null;
+        let currentRange = 24;
+
+        // Icon circumference constants
+        const FAVICON_CIRCUMFERENCE = 2 * Math.PI * 11;  // r=11 in 32x32
+        const MOBILE_CIRCUMFERENCE = 2 * Math.PI * 65;  // r=65 in 180x180
+
+        function updateIconPercentage(pct) {
+            // Favicon: 52/69 ≈ 75% as placeholder, will update
+            const faviconFilled = FAVICON_CIRCUMFERENCE * pct / 100;
+            const faviconGap = FAVICON_CIRCUMFERENCE - faviconFilled;
+            const faviconDasharray = `${faviconFilled.toFixed(1)} ${faviconGap.toFixed(1)}`;
+
+            // Mobile icon
+            const mobileFilled = MOBILE_CIRCUMFERENCE * pct / 100;
+            const mobileGap = MOBILE_CIRCUMFERENCE - mobileFilled;
+            const mobileDasharray = `${mobileFilled.toFixed(1)} ${mobileGap.toFixed(1)}`;
+
+            // Update favicon
+            const favicon = document.getElementById('favicon');
+            if (favicon) {
+                favicon.href = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23111827'/><circle cx='16' cy='16' r='11' fill='none' stroke='%2306b6d4' stroke-width='3' stroke-dasharray='${faviconDasharray}' stroke-linecap='round' transform='rotate(-90 16 16)'/><text x='16' y='21' font-family='system-ui,sans-serif' font-size='12' font-weight='700' fill='white' text-anchor='middle'>M</text></svg>`;
+            }
+
+            // Update mobile icon (append timestamp to bust cache)
+            const mobileIcon = document.getElementById('mobile-icon');
+            if (mobileIcon) {
+                mobileIcon.href = `/api/icon?t=${Date.now()}`;
+            }
+        }
+
+        function formatNumber(num) {
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toString();
+        }
+
+        function setTimeRange(hours) {
+            currentRange = hours;
+            document.querySelectorAll('[id^="btn-"]').forEach(btn => {
+                btn.classList.remove('bg-cyan-600', 'text-white');
+                btn.classList.add('bg-gray-700');
+            });
+            document.getElementById('btn-' + hours + 'h').classList.remove('bg-gray-700');
+            document.getElementById('btn-' + hours + 'h').classList.add('bg-cyan-600', 'text-white');
+            fetchData();
+        }
+
+        async function fetchSummary() {
+            try {
+                const res = await fetch('/api/summary');
+                if (!res.ok) throw new Error('API error: ' + res.status);
+                const data = await res.json();
+
+                if (data.current) {
+                    document.getElementById('stat-used').textContent = formatNumber(data.current.used);
+                    document.getElementById('stat-total').textContent = formatNumber(data.current.total);
+
+                    const pct = data.current.percentage;
+                    document.getElementById('stat-pct').textContent = pct.toFixed(1) + '%';
+                    document.getElementById('stat-pct').className = 'text-xl md:text-2xl font-bold mt-1 ' +
+                        (pct >= 85 ? 'text-red-400' : pct >= 60 ? 'text-yellow-400' : 'text-green-400');
+
+                    document.getElementById('stat-remains').textContent = data.current.remains_time || '--';
+
+                    // Update icon ring percentage
+                    updateIconPercentage(pct);
+                }
+
+                if (data.stats) {
+                    document.getElementById('stat-avg').textContent = data.stats.avg_percentage.toFixed(1) + '%';
+                    document.getElementById('stat-max').textContent = data.stats.max_percentage.toFixed(1) + '%';
+                    document.getElementById('stat-min').textContent = data.stats.min_percentage.toFixed(1) + '%';
+                    document.getElementById('stat-count').textContent = data.stats.record_count;
+                }
+
+                if (data.latest_record_time) {
+                    document.getElementById('update-time').textContent = '最后更新: ' + data.latest_record_time;
+                }
+
+                document.getElementById('status').textContent = '✓ 数据加载成功';
+                document.getElementById('status').className = 'text-center text-sm mt-4 text-green-400';
+            } catch (e) {
+                console.error('Failed to fetch summary:', e);
+                document.getElementById('status').textContent = '✗ 数据加载失败: ' + e.message;
+                document.getElementById('status').className = 'text-center text-sm mt-4 text-red-400';
+            }
+        }
+
+        async function fetchData() {
+            try {
+                const res = await fetch(`/api/data?hours=${currentRange}`);
+                if (!res.ok) throw new Error('API error: ' + res.status);
+                const data = await res.json();
+
+                updateChart(data.records || []);
+            } catch (e) {
+                console.error('Failed to fetch data:', e);
+                document.getElementById('status').textContent = '✗ 图表数据加载失败: ' + e.message;
+                document.getElementById('status').className = 'text-center text-sm mt-4 text-red-400';
+            }
+        }
+
+        function updateChart(records) {
+            const ctx = document.getElementById('usageChart').getContext('2d');
+
+            const labels = records.map(r => {
+                const d = new Date(r.timestamp);
+                if (currentRange > 24) {
+                    return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+                }
+                return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            });
+
+            const percentages = records.map(r => r.percentage);
+            const usedValues = records.map(r => r.used);
+            const totalValue = records.length > 0 ? records[records.length - 1].total : 0;
+
+            if (chart) {
+                chart.destroy();
+            }
+
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: '使用率 (%)',
+                            data: percentages,
+                            borderColor: '#06b6d4',
+                            backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                            fill: true,
+                            tension: 0.3,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: '已用量',
+                            data: usedValues,
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                            fill: false,
+                            tension: 0.3,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: { color: '#9ca3af' }
+                        },
+                        tooltip: {
+                            backgroundColor: '#1f2937',
+                            titleColor: '#fff',
+                            bodyColor: '#d1d5db',
+                            borderColor: '#374151',
+                            borderWidth: 1
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            ticks: { color: '#9ca3af', maxTicksLimit: 8 }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            min: 0,
+                            max: 100,
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            ticks: {
+                                color: '#9ca3af',
+                                callback: v => v + '%'
+                            },
+                            title: {
+                                display: true,
+                                text: '使用率',
+                                color: '#06b6d4'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            min: 0,
+                            max: totalValue || 100,
+                            grid: { drawOnChartArea: false },
+                            ticks: {
+                                color: '#f59e0b',
+                                callback: v => formatNumber(v)
+                            },
+                            title: {
+                                display: true,
+                                text: '已用量',
+                                color: '#f59e0b'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Initial load
+        fetchSummary();
+        fetchData();
+
+        // Auto-refresh every 30 seconds
+        setInterval(() => {
+            fetchSummary();
+            fetchData();
+        }, 30000);
+    </script>
+</body>
+</html>

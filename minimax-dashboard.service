@@ -1,0 +1,14 @@
+[Unit]
+Description=MiniMax Coding Plan Dashboard Server
+After=network.target minimax-collector.service
+
+[Service]
+Type=simple
+User=evi1
+WorkingDirectory=/home/evi1/minimax-coding-plan-check
+ExecStart=/usr/bin/python3 /home/evi1/minimax-coding-plan-check/server.py --port 8080
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
