@@ -138,8 +138,10 @@
                 btn.classList.remove('bg-cyan-600', 'text-white');
                 btn.classList.add('bg-gray-700');
             });
-            document.getElementById('btn-' + hours + 'h').classList.remove('bg-gray-700');
-            document.getElementById('btn-' + hours + 'h').classList.add('bg-cyan-600', 'text-white');
+            // Map hours to button ID: 6h, 24h, 168 (7 days) -> btn-7d
+            const btnId = hours === 168 ? 'btn-7d' : 'btn-' + hours + 'h';
+            document.getElementById(btnId).classList.remove('bg-gray-700');
+            document.getElementById(btnId).classList.add('bg-cyan-600', 'text-white');
             fetchData();
         }
 
