@@ -158,7 +158,7 @@ latest = conn.execute("""
     ORDER BY timestamp DESC
     LIMIT 1
 """).fetchone()
-# latest_record_time 保持原样返回（ms 整数）
+# latest_record_time 返回原始 ms 整数，由 serve_summary() 格式化为北京时字符串
 ```
 
 ### `server.py`
@@ -176,11 +176,13 @@ for r in records:
 
 #### `serve_summary()` 时间戳展示
 
-同上，`timestamp` 从整数转为北京时字符串。
+`latest_record_time` 从 ms 整数转为北京时字符串（与 `serve_data` 逻辑相同）。
 
 #### 其他 API
 
-`serve_daily_stats`、`serve_weekly_stats`、`serve_monthly_stats` 中的 `date` / `week` / `month` 字段来自 SQLite `date()` 函数，不涉及 timestamp 列，仅需确认 schema 兼容即可。
+`serve_daily_stats`、`serve_weekly_stats`、`serve_monthly_stats` 中的 `date` / `week` / `month` 字段来自 SQLite `date()` / `strftime()` 函数。这些函数接收 Unix 时间戳（秒）并按 **UTC 日历** 计算，不受服务器时区影响。
+
+> 注：`strftime('%W', ...)` 的周数计算（00-53，周一为每周首日）也是 UTC 标准周，无需时区修正。
 
 ## 验证步骤
 
