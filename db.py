@@ -58,7 +58,8 @@ def insert_record(total: int, used: int, remaining: int, percentage: float, rema
 
 def get_records(hours: int = 24) -> list:
     """Get records from the last N hours."""
-    since = datetime.now() - timedelta(hours=hours)
+    # Use utcnow to match the timezone of stored timestamps
+    since = datetime.utcnow() - timedelta(hours=hours)
     # Replace T with space to match SQLite's 'YYYY-MM-DD HH:MM:SS' format
     since_str = since.isoformat().replace("T", " ")
     with get_connection() as conn:
@@ -73,7 +74,8 @@ def get_records(hours: int = 24) -> list:
 
 def get_all_records(days: int = 7) -> list:
     """Get all records from the last N days (for longer time ranges)."""
-    since = datetime.now() - timedelta(days=days)
+    # Use utcnow to match the timezone of stored timestamps
+    since = datetime.utcnow() - timedelta(days=days)
     # Replace T with space to match SQLite's 'YYYY-MM-DD HH:MM:SS' format
     since_str = since.isoformat().replace("T", " ")
     with get_connection() as conn:
@@ -118,6 +120,7 @@ def get_summary() -> dict:
 
 def get_daily_stats(days: int = 7) -> list:
     """Get daily usage statistics for the last N days."""
+    since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
@@ -129,15 +132,16 @@ def get_daily_stats(days: int = 7) -> list:
                 AVG(remaining) as avg_remaining,
                 COUNT(*) as record_count
             FROM usage_records
-            WHERE timestamp >= date('now', ? || ' days')
+            WHERE timestamp >= ?
             GROUP BY date(timestamp)
             ORDER BY date ASC
-        """, (-days,)).fetchall()
+        """, (since,)).fetchall()
         return [dict(row) for row in rows]
 
 
 def get_weekly_stats(weeks: int = 4) -> list:
     """Get weekly usage statistics for the last N weeks."""
+    since = (datetime.utcnow() - timedelta(weeks=weeks * 7)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
@@ -149,15 +153,16 @@ def get_weekly_stats(weeks: int = 4) -> list:
                 AVG(remaining) as avg_remaining,
                 COUNT(*) as record_count
             FROM usage_records
-            WHERE timestamp >= date('now', ? || ' days')
+            WHERE timestamp >= ?
             GROUP BY strftime('%Y-W%W', timestamp)
             ORDER BY week ASC
-        """, (-weeks * 7,)).fetchall()
+        """, (since,)).fetchall()
         return [dict(row) for row in rows]
 
 
 def get_monthly_stats(months: int = 6) -> list:
     """Get monthly usage statistics for the last N months."""
+    since = (datetime.utcnow() - timedelta(days=months * 30)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
@@ -169,10 +174,10 @@ def get_monthly_stats(months: int = 6) -> list:
                 AVG(remaining) as avg_remaining,
                 COUNT(*) as record_count
             FROM usage_records
-            WHERE timestamp >= date('now', ? || ' days')
+            WHERE timestamp >= ?
             GROUP BY strftime('%Y-%m', timestamp)
             ORDER BY month ASC
-        """, (-months * 30,)).fetchall()
+        """, (since,)).fetchall()
         return [dict(row) for row in rows]
 
 

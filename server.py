@@ -109,11 +109,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                     ts = r["timestamp"]
                 else:
                     ts = r["timestamp"].isoformat()
-                # Parse as UTC and convert to Beijing time (UTC+8)
-                from datetime import datetime, timedelta
-                dt_utc = datetime.fromisoformat(ts.replace("+08:00", ""))
-                dt_beijing = dt_utc + timedelta(hours=8)
-                r["timestamp"] = dt_beijing.strftime("%Y-%m-%d %H:%M:%S+08:00")
+                # Timestamp is stored as naive datetime string in local CST (UTC+8),
+                # just append the timezone suffix for ISO format output
+                ts_clean = ts.replace("+08:00", "")
+                r["timestamp"] = f"{ts_clean}+08:00"
 
             self.send_json({"records": records})
         except Exception as e:
@@ -145,12 +144,9 @@ class RequestHandler(BaseHTTPRequestHandler):
             }
 
             if summary.get("latest_record_time"):
-                from datetime import datetime, timedelta
                 ts = str(summary["latest_record_time"])
-                # Parse as UTC and convert to Beijing time (UTC+8)
-                dt_utc = datetime.fromisoformat(ts.replace("+08:00", ""))
-                dt_beijing = dt_utc + timedelta(hours=8)
-                summary["latest_record_time"] = dt_beijing.strftime("%Y-%m-%d %H:%M:%S+08:00")
+                # Timestamp stored as naive CST string, just append timezone suffix
+                summary["latest_record_time"] = f"{ts.replace('+08:00', '')}+08:00"
 
             self.send_json(summary)
         except Exception as e:
