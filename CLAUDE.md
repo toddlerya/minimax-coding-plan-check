@@ -28,6 +28,20 @@ python3 server.py --port 8080
 ./minimax-quota.sh
 ```
 
+## Systemd 服务
+
+两个服务已注册到系统 systemd（`/etc/systemd/system/`），开机自启：
+
+```bash
+# 重启服务（代码更新后需手动执行）
+sudo systemctl restart minimax-collector minimax-dashboard
+
+# 查看状态
+systemctl status minimax-collector minimax-dashboard
+```
+
+服务文件：`minimax-collector.service`、`minimax-dashboard.service`
+
 ## 架构
 
 - `collector.py` → 从 MiniMax API 获取数据，存入 SQLite
@@ -44,9 +58,10 @@ python3 server.py --port 8080
 
 ## 数据库
 
-SQLite 数据库位于 `data/quota.sqlite`。表结构：
-- `usage_records`: timestamp, total, used, remaining, percentage, remains_time_ms
+SQLite 数据库位于 `data/quota.sqlite`。`timestamp` 存为 **Unix 毫秒整数**（UTC），避免时区歧义。表结构：
+- `usage_records`: timestamp (INTEGER, ms), total, used, remaining, percentage, remains_time_ms
 - 在 `timestamp` 上建有索引，用于时间范围查询
+- Schema 版本 2，首次启动时自动清除旧字符串格式数据
 
 ## Web API 接口
 

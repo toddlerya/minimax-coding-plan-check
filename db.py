@@ -3,10 +3,11 @@
 
 import sqlite3
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "quota.sqlite")
+SCHEMA_VERSION = 2
 
 
 def get_db_path():
@@ -29,16 +30,27 @@ def init_db():
     """Initialize the database with required tables."""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with get_connection() as conn:
+        # Check old data format, drop if string timestamps (upgrade from v1)
+        try:
+            row = conn.execute(
+                "SELECT typeof(timestamp) as t FROM usage_records LIMIT 1"
+            ).fetchone()
+            if row and row['t'] == 'text':  # Old string format
+                conn.execute("DROP TABLE IF EXISTS usage_records")
+                conn.execute("DROP INDEX IF EXISTS idx_timestamp")
+        except sqlite3.OperationalError:
+            pass  # Table doesn't exist, will create
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS usage_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                timestamp INTEGER NOT NULL,
                 total INTEGER NOT NULL,
                 used INTEGER NOT NULL,
                 remaining INTEGER NOT NULL,
                 percentage REAL NOT NULL,
                 remains_time_ms INTEGER NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
             )
         """)
         conn.execute("""
@@ -46,45 +58,42 @@ def init_db():
         """)
 
 
-def insert_record(total: int, used: int, remaining: int, percentage: float, remains_time_ms: int) -> int:
+def insert_record(timestamp_ms: int, total: int, used: int,
+                  remaining: int, percentage: float, remains_time_ms: int) -> int:
     """Insert a new usage record. Returns the record id."""
     with get_connection() as conn:
         cursor = conn.execute("""
-            INSERT INTO usage_records (total, used, remaining, percentage, remains_time_ms)
-            VALUES (?, ?, ?, ?, ?)
-        """, (total, used, remaining, percentage, remains_time_ms))
+            INSERT INTO usage_records (timestamp, total, used, remaining, percentage, remains_time_ms)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (timestamp_ms, total, used, remaining, percentage, remains_time_ms))
         return cursor.lastrowid
 
 
 def get_records(hours: int = 24) -> list:
-    """Get records from the last N hours."""
-    # Use utcnow to match the timezone of stored timestamps
-    since = datetime.utcnow() - timedelta(hours=hours)
-    # Replace T with space to match SQLite's 'YYYY-MM-DD HH:MM:SS' format
-    since_str = since.isoformat().replace("T", " ")
+    """Get records from the last N hours (timestamps in ms)."""
+    now_ms = int(datetime.utcnow().timestamp() * 1000)
+    since_ms = now_ms - hours * 3600 * 1000
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT timestamp, total, used, remaining, percentage, remains_time_ms
             FROM usage_records
             WHERE timestamp >= ?
             ORDER BY timestamp ASC
-        """, (since_str,)).fetchall()
+        """, (since_ms,)).fetchall()
         return [dict(row) for row in rows]
 
 
 def get_all_records(days: int = 7) -> list:
-    """Get all records from the last N days (for longer time ranges)."""
-    # Use utcnow to match the timezone of stored timestamps
-    since = datetime.utcnow() - timedelta(days=days)
-    # Replace T with space to match SQLite's 'YYYY-MM-DD HH:MM:SS' format
-    since_str = since.isoformat().replace("T", " ")
+    """Get all records from the last N days (timestamps in ms)."""
+    now_ms = int(datetime.utcnow().timestamp() * 1000)
+    since_ms = now_ms - days * 86400 * 1000
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT timestamp, total, used, remaining, percentage, remains_time_ms
             FROM usage_records
             WHERE timestamp >= ?
             ORDER BY timestamp ASC
-        """, (since_str,)).fetchall()
+        """, (since_ms,)).fetchall()
         return [dict(row) for row in rows]
 
 
@@ -120,11 +129,12 @@ def get_summary() -> dict:
 
 def get_daily_stats(days: int = 7) -> list:
     """Get daily usage statistics for the last N days."""
-    since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+    now_ms = int(datetime.utcnow().timestamp() * 1000)
+    since_ms = now_ms - days * 86400 * 1000
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
-                date(timestamp) as date,
+                date(timestamp/1000, 'unixepoch') as date,
                 AVG(percentage) as avg_percentage,
                 MAX(percentage) as max_percentage,
                 MIN(percentage) as min_percentage,
@@ -133,19 +143,20 @@ def get_daily_stats(days: int = 7) -> list:
                 COUNT(*) as record_count
             FROM usage_records
             WHERE timestamp >= ?
-            GROUP BY date(timestamp)
+            GROUP BY date(timestamp/1000, 'unixepoch')
             ORDER BY date ASC
-        """, (since,)).fetchall()
+        """, (since_ms,)).fetchall()
         return [dict(row) for row in rows]
 
 
 def get_weekly_stats(weeks: int = 4) -> list:
     """Get weekly usage statistics for the last N weeks."""
-    since = (datetime.utcnow() - timedelta(weeks=weeks * 7)).strftime("%Y-%m-%d")
+    now_ms = int(datetime.utcnow().timestamp() * 1000)
+    since_ms = now_ms - weeks * 7 * 86400 * 1000
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
-                strftime('%Y-W%W', timestamp) as week,
+                strftime('%Y-W%W', timestamp/1000, 'unixepoch') as week,
                 AVG(percentage) as avg_percentage,
                 MAX(percentage) as max_percentage,
                 MIN(percentage) as min_percentage,
@@ -154,19 +165,20 @@ def get_weekly_stats(weeks: int = 4) -> list:
                 COUNT(*) as record_count
             FROM usage_records
             WHERE timestamp >= ?
-            GROUP BY strftime('%Y-W%W', timestamp)
+            GROUP BY strftime('%Y-W%W', timestamp/1000, 'unixepoch')
             ORDER BY week ASC
-        """, (since,)).fetchall()
+        """, (since_ms,)).fetchall()
         return [dict(row) for row in rows]
 
 
 def get_monthly_stats(months: int = 6) -> list:
     """Get monthly usage statistics for the last N months."""
-    since = (datetime.utcnow() - timedelta(days=months * 30)).strftime("%Y-%m-%d")
+    now_ms = int(datetime.utcnow().timestamp() * 1000)
+    since_ms = now_ms - months * 30 * 86400 * 1000
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT
-                strftime('%Y-%m', timestamp) as month,
+                strftime('%Y-%m', timestamp/1000, 'unixepoch') as month,
                 AVG(percentage) as avg_percentage,
                 MAX(percentage) as max_percentage,
                 MIN(percentage) as min_percentage,
@@ -175,9 +187,9 @@ def get_monthly_stats(months: int = 6) -> list:
                 COUNT(*) as record_count
             FROM usage_records
             WHERE timestamp >= ?
-            GROUP BY strftime('%Y-%m', timestamp)
+            GROUP BY strftime('%Y-%m', timestamp/1000, 'unixepoch')
             ORDER BY month ASC
-        """, (since,)).fetchall()
+        """, (since_ms,)).fetchall()
         return [dict(row) for row in rows]
 
 
@@ -196,13 +208,13 @@ def get_range_stats(start_date: str, end_date: str) -> dict:
                 MIN(timestamp) as start_time,
                 MAX(timestamp) as end_time
             FROM usage_records
-            WHERE date(timestamp) >= date(?) AND date(timestamp) <= date(?)
+            WHERE date(timestamp/1000, 'unixepoch') >= date(?) AND date(timestamp/1000, 'unixepoch') <= date(?)
         """, (start_date, end_date)).fetchone()
 
         # Get daily breakdown
         daily = conn.execute("""
             SELECT
-                date(timestamp) as date,
+                date(timestamp/1000, 'unixepoch') as date,
                 AVG(percentage) as avg_percentage,
                 MAX(percentage) as max_percentage,
                 MIN(percentage) as min_percentage,
@@ -210,8 +222,8 @@ def get_range_stats(start_date: str, end_date: str) -> dict:
                 AVG(remaining) as avg_remaining,
                 COUNT(*) as record_count
             FROM usage_records
-            WHERE date(timestamp) >= date(?) AND date(timestamp) <= date(?)
-            GROUP BY date(timestamp)
+            WHERE date(timestamp/1000, 'unixepoch') >= date(?) AND date(timestamp/1000, 'unixepoch') <= date(?)
+            GROUP BY date(timestamp/1000, 'unixepoch')
             ORDER BY date ASC
         """, (start_date, end_date)).fetchall()
 

@@ -10,7 +10,7 @@ import os
 import signal
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import db
 
@@ -92,13 +92,14 @@ def parse_and_store(data: dict) -> bool:
             return False
 
         record = model_remains[0]
+        start_time_ms = int(datetime.now(timezone.utc).timestamp() * 1000)  # Actual collection time in ms (UTC)
         total = int(record.get("current_interval_total_count", 0))
         remaining = int(record.get("current_interval_usage_count", 0))
         used = total - remaining
         percentage = (used / total * 100) if total > 0 else 0
         remains_time_ms = int(record.get("remains_time", 0))
 
-        db.insert_record(total, used, remaining, percentage, remains_time_ms)
+        db.insert_record(start_time_ms, total, used, remaining, percentage, remains_time_ms)
         print(f"[{datetime.now()}] Stored: used={used}, total={total}, pct={percentage:.1f}%")
         return True
     except Exception as e:
